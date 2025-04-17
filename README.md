@@ -1,4 +1,4 @@
-# Extração de E-mails Únicos via Gmail API com Exportação para Excel
+2# Extração de E-mails Únicos via Gmail API com Exportação para Excel
 
 Este projeto em **Python** autentica um usuário do Gmail, percorre toda a caixa de entrada e extrai **nomes e endereços de e-mail únicos** dos remetentes. Ele inclui uma interface gráfica para selecionar o local de salvamento da planilha `.xlsx` e uma **interface amigável no terminal**, com barras de progresso e simulação de login seguro.
 
@@ -73,8 +73,3 @@ Salvo 246 e-mails únicos em 'C:/Users/Davi/Documents/emails.xlsx'
 Licença
 
 MIT
-
----
-
-Se
-
