@@ -1,0 +1,162 @@
+import os.path
+import random
+import time
+import sys
+import tkinter as tk
+from tkinter import filedialog
+from google.auth.transport.requests import Request
+from google.oauth2.credentials import Credentials
+from google_auth_oauthlib.flow import InstalledAppFlow
+from googleapiclient.discovery import build
+import pandas as pd
+from tqdm import tqdm
+
+SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
+
+def authenticate_gmail():
+    """Autentica o usuário e retorna o serviço do Gmail."""
+    creds = None
+    if os.path.exists('token.json'):
+        creds = Credentials.from_authorized_user_file('token.json', SCOPES)
+    if not creds or not creds.valid:
+        if creds and creds.expired and creds.refresh_token:
+            creds.refresh(Request())
+        else:
+            flow = InstalledAppFlow.from_client_secrets_file('credentials.json', SCOPES)
+            creds = flow.run_local_server(port=0)
+        with open('token.json', 'w') as token:
+            token.write(creds.to_json())
+    return build('gmail', 'v1', credentials=creds)
+
+def simulate_secure_login():
+    """Simula um login seguro com uma barra de progresso."""
+    print("Iniciando autenticação...")
+    time.sleep(1)  # Simula um pequeno atraso
+
+    # Mensagem de sucesso
+    success_message = "Login bem-sucedido!"
+    random_chars = "!@#$%&*"
+
+    # Barra de progresso para a simulação de login
+    for _ in tqdm(range(20), desc="Simulando autenticação", unit="step"):
+        # Gera uma string aleatória
+        simulated_encryption = ''.join(random.choice(random_chars) for _ in range(len(success_message)))
+        # Exibe a string aleatória
+        sys.stdout.write(f"\r{simulated_encryption}")
+        sys.stdout.flush()
+        time.sleep(0.1)  # Atraso entre cada "frame"
+
+    # Exibe a mensagem final
+    sys.stdout.write(f"\r{success_message}\n")
+    sys.stdout.flush()
+
+def count_emails(service):
+    """Conta o total de e-mails na caixa de entrada."""
+    page_token = None
+    total_emails = 0
+
+    # Barra de progresso para a contagem de e-mails
+    with tqdm(desc="Contando e-mails", unit="e-mail") as pbar:
+        while True:
+            results = service.users().messages().list(
+                userId='me',
+                labelIds=['INBOX'],
+                pageToken=page_token,
+                maxResults=500  # Máximo permitido por requisição
+            ).execute()
+
+            messages = results.get('messages', [])
+            total_emails += len(messages)
+            pbar.update(len(messages))  # Atualiza a barra de progresso
+
+            page_token = results.get('nextPageToken')
+            if not page_token:
+                break
+
+    return total_emails
+
+def get_unique_emails(service, max_results=10000):
+    """Extrai e-mails únicos da caixa de entrada."""
+    page_token = None
+    emails = []
+    seen_emails = set()  # Para evitar duplicatas
+
+    # Conta o total de e-mails
+    total_emails = count_emails(service)
+    print(f"Total de e-mails a processar: {total_emails}")
+
+    # Barra de progresso para o processamento dos e-mails
+    with tqdm(total=total_emails, desc="Processando e-mails", unit="e-mail") as pbar:
+        while len(emails) < max_results:
+            results = service.users().messages().list(
+                userId='me',
+                labelIds=['INBOX'],
+                pageToken=page_token,
+                maxResults=500  # Máximo permitido por requisição
+            ).execute()
+
+            messages = results.get('messages', [])
+            for message in messages:
+                msg = service.users().messages().get(userId='me', id=message['id'], format='metadata').execute()
+                headers = msg.get('payload', {}).get('headers', [])
+                from_header = next((h['value'] for h in headers if h['name'] == 'From'), '')
+
+                if from_header:
+                    name, email = parse_from_header(from_header)
+                    # Normaliza o e-mail e verifica duplicatas
+                    email_key = email.strip().lower()
+                    if email_key not in seen_emails and email:
+                        seen_emails.add(email_key)
+                        emails.append({'Nome': name, 'E-mail': email})
+
+                        if len(emails) >= max_results:
+                            break  # Para ao atingir 10.000
+
+                pbar.update(1)  # Atualiza a barra de progresso
+
+            page_token = results.get('nextPageToken')
+            if not page_token:
+                break  # Sem mais páginas
+
+    return pd.DataFrame(emails)
+
+def parse_from_header(from_header):
+    """Extrai o nome e o endereço de e-mail do cabeçalho 'From'."""
+    if '<' in from_header:
+        parts = from_header.split('<')
+        name = parts[0].strip().strip('"')
+        email = parts[1].split('>')[0].strip()
+    else:
+        name = ''
+        email = from_header.strip()
+    return name, email
+
+def choose_save_location():
+    """Abre uma janela de diálogo para escolher o local de salvamento."""
+    root = tk.Tk()
+    root.withdraw()  # Esconde a janela principal do tkinter
+
+    # Abre a janela de diálogo para salvar o arquivo
+    file_path = filedialog.asksaveasfilename(
+        defaultextension=".xlsx",
+        filetypes=[("Arquivos Excel", "*.xlsx"), ("Todos os arquivos", "*.*")],
+        title="Salvar como"
+    )
+
+    return file_path
+
+if __name__ == '__main__':
+    # Autenticação
+    service = authenticate_gmail()
+    simulate_secure_login()  # Simulação de login com barra de progresso
+
+    # Extração de e-mails
+    df = get_unique_emails(service)
+
+    # Escolher o local de salvamento
+    save_path = choose_save_location()
+    if save_path:  # Verifica se o usuário escolheu um local
+        df.to_excel(save_path, index=False)
+        print(f"Salvo {len(df)} e-mails únicos em '{save_path}'")
+    else:
+        print("Operação cancelada pelo usuário.")
